@@ -6,8 +6,17 @@ source /etc/kai-vps/secrets.env
 : "${SUB_PORT:=18080}"
 PUBLIC_IP="${PUBLIC_IP:-$(curl -4 -fsS --max-time 8 https://api.ipify.org)}"
 SUB_TOKEN="${SUB_TOKEN:-$(openssl rand -hex 32)}"
-printf '\nSUB_TOKEN=%s\n' "$SUB_TOKEN" >> /etc/kai-vps/secrets.env
+
+# Keep exactly one SUB_TOKEN entry so this script can be rerun safely.
+tmp_secrets="$(mktemp)"
+grep -v '^SUB_TOKEN=' /etc/kai-vps/secrets.env > "$tmp_secrets" || true
+printf 'SUB_TOKEN=%s\n' "$SUB_TOKEN" >> "$tmp_secrets"
+install -m 600 "$tmp_secrets" /etc/kai-vps/secrets.env
+rm -f "$tmp_secrets"
+
 install -d -m 750 -o root -g www-data /opt/kai-subscription
+
+# Mihomo / Clash Verge subscription.
 cat > /opt/kai-subscription/mihomo.yaml <<EOF
 mixed-port: 7890
 allow-lan: false
@@ -56,30 +65,64 @@ rules:
   - GEOIP,CN,DIRECT,no-resolve
   - MATCH,PROXY
 EOF
-chown root:www-data /opt/kai-subscription/mihomo.yaml
-chmod 640 /opt/kai-subscription/mihomo.yaml
+
+# Generic VLESS + REALITY URI. Shadowrocket can import this URI directly.
+VLESS_URI="vless://${VLESS_UUID}@${PUBLIC_IP}:443?security=reality&encryption=none&pbk=${REALITY_PUBLIC_KEY}&fp=chrome&type=tcp&flow=xtls-rprx-vision&sni=${REALITY_SNI}&sid=${REALITY_SHORT_ID}#Bandwagon-Xray-Reality"
+printf '%s\n' "$VLESS_URI" > /opt/kai-subscription/vless-link.txt
+
+# Shadowrocket subscription body: Base64-encoded VLESS URI.
+printf '%s\n' "$VLESS_URI" | base64 | tr -d '\n' > /opt/kai-subscription/shadowrocket.txt
+printf '\n' >> /opt/kai-subscription/shadowrocket.txt
+
+chown root:www-data /opt/kai-subscription/mihomo.yaml /opt/kai-subscription/vless-link.txt /opt/kai-subscription/shadowrocket.txt
+chmod 640 /opt/kai-subscription/mihomo.yaml /opt/kai-subscription/vless-link.txt /opt/kai-subscription/shadowrocket.txt
+
 cat > /opt/kai-subscription/server.py <<'PY'
 import os
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-PORT=int(os.environ.get('SUB_PORT','18080')); SUB_PATH=os.environ['SUB_PATH']; YAML_PATH='/opt/kai-subscription/mihomo.yaml'
+
+PORT = int(os.environ.get('SUB_PORT', '18080'))
+MIHOMO_PATH = os.environ['MIHOMO_PATH']
+SHADOWROCKET_PATH = os.environ['SHADOWROCKET_PATH']
+FILES = {
+    MIHOMO_PATH: ('/opt/kai-subscription/mihomo.yaml', 'text/yaml; charset=utf-8'),
+    SHADOWROCKET_PATH: ('/opt/kai-subscription/shadowrocket.txt', 'text/plain; charset=utf-8'),
+}
+
 class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
-        if self.path != SUB_PATH:
-            self.send_response(404); self.end_headers(); return
-        with open(YAML_PATH,'rb') as f: data=f.read()
-        self.send_response(200); self.send_header('Content-Type','text/yaml; charset=utf-8'); self.send_header('Cache-Control','no-store'); self.end_headers(); self.wfile.write(data)
-    def log_message(self, *args): return
-ThreadingHTTPServer(('127.0.0.1',PORT),Handler).serve_forever()
+        item = FILES.get(self.path)
+        if not item:
+            self.send_response(404)
+            self.end_headers()
+            return
+        path, content_type = item
+        with open(path, 'rb') as f:
+            data = f.read()
+        self.send_response(200)
+        self.send_header('Content-Type', content_type)
+        self.send_header('Cache-Control', 'no-store')
+        self.end_headers()
+        self.wfile.write(data)
+
+    def log_message(self, *args):
+        return
+
+ThreadingHTTPServer(('127.0.0.1', PORT), Handler).serve_forever()
 PY
+
 cat > /etc/kai-subscription.env <<EOF
-SUB_PATH=/sub/${SUB_TOKEN}.yaml
+MIHOMO_PATH=/sub/${SUB_TOKEN}.yaml
+SHADOWROCKET_PATH=/sr/${SUB_TOKEN}
 SUB_PORT=${SUB_PORT}
 EOF
 chmod 600 /etc/kai-subscription.env
+
 cat > /etc/systemd/system/kai-subscription.service <<'EOF'
 [Unit]
-Description=Kai local Mihomo subscription backend
+Description=Kai local client subscription backend
 After=network.target
+
 [Service]
 Type=simple
 User=www-data
@@ -94,11 +137,14 @@ ProtectHome=true
 ProtectSystem=strict
 ReadOnlyPaths=/opt/kai-subscription
 RestrictAddressFamilies=AF_INET AF_UNIX
+
 [Install]
 WantedBy=multi-user.target
 EOF
+
 systemctl daemon-reload
 systemctl enable --now kai-subscription
 systemctl restart kai-subscription
 curl -fsS "http://127.0.0.1:${SUB_PORT}/sub/${SUB_TOKEN}.yaml" >/dev/null
-echo '[OK] local subscription backend ready'
+curl -fsS "http://127.0.0.1:${SUB_PORT}/sr/${SUB_TOKEN}" | base64 -d | grep -q '^vless://'
+echo '[OK] Mihomo and Shadowrocket local subscription endpoints ready'

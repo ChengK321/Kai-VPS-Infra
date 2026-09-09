@@ -59,12 +59,21 @@ server {
     access_log off;
     add_header X-Content-Type-Options nosniff always;
     add_header Cache-Control "no-store" always;
+
     location = /sub/${SUB_TOKEN}.yaml {
         proxy_pass http://127.0.0.1:${SUB_PORT};
         proxy_http_version 1.1;
         proxy_set_header Host \$host;
         proxy_set_header X-Real-IP \$remote_addr;
     }
+
+    location = /sr/${SUB_TOKEN} {
+        proxy_pass http://127.0.0.1:${SUB_PORT};
+        proxy_http_version 1.1;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+    }
+
     location / { return 404; }
 }
 EOF
@@ -73,4 +82,5 @@ systemctl reload nginx
 install -d -m 755 /etc/letsencrypt/renewal-hooks/deploy
 printf '%s\n' '#!/usr/bin/env bash' 'systemctl reload nginx' > /etc/letsencrypt/renewal-hooks/deploy/reload-nginx.sh
 chmod 755 /etc/letsencrypt/renewal-hooks/deploy/reload-nginx.sh
-echo "[OK] https://${SUB_DOMAIN}:${SUB_HTTPS_PORT}/sub/${SUB_TOKEN}.yaml"
+echo "[OK] Mihomo: https://${SUB_DOMAIN}:${SUB_HTTPS_PORT}/sub/${SUB_TOKEN}.yaml"
+echo "[OK] Shadowrocket: https://${SUB_DOMAIN}:${SUB_HTTPS_PORT}/sr/${SUB_TOKEN}"

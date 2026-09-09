@@ -5,14 +5,23 @@ source /etc/kai-vps/bandwagon.env
 source /etc/kai-vps/secrets.env
 : "${SUB_PORT:=18080}"
 : "${SUB_HTTPS_PORT:=8443}"
-[[ -n "${SUB_DOMAIN:-}" ]] || { echo 'SUB_DOMAIN is empty'; exit 1; }
+: "${AUTO_SSLIP_DOMAIN:=1}"
 PUBLIC_IP="${PUBLIC_IP:-$(curl -4 -fsS --max-time 8 https://api.ipify.org)}"
+
+if [[ -z "${SUB_DOMAIN:-}" && "$AUTO_SSLIP_DOMAIN" == 1 ]]; then
+  SUB_DOMAIN="$(printf '%s' "$PUBLIC_IP" | tr '.' '-').sslip.io"
+  echo "[INFO] No SUB_DOMAIN configured; using automatic domain: ${SUB_DOMAIN}"
+fi
+[[ -n "${SUB_DOMAIN:-}" ]] || { echo 'SUB_DOMAIN is empty and AUTO_SSLIP_DOMAIN is disabled'; exit 1; }
+
 DNS_A="$(dig +short A "$SUB_DOMAIN" | tr '\n' ' ')"
 [[ " $DNS_A " == *" $PUBLIC_IP "* ]] || { echo "DNS A record does not point to this VPS: $DNS_A"; exit 1; }
+
 ACME_ROOT=/var/www/letsencrypt
 SITE=/etc/nginx/sites-available/kai-subscription
 install -d -m 755 "$ACME_ROOT"
 rm -f /etc/nginx/sites-enabled/default
+
 cat > "$SITE" <<EOF
 server {
     listen 80;
@@ -28,6 +37,7 @@ ln -sfn "$SITE" /etc/nginx/sites-enabled/kai-subscription
 nginx -t
 systemctl enable --now nginx
 systemctl reload nginx
+
 if [[ ! -s "/etc/letsencrypt/live/${SUB_DOMAIN}/fullchain.pem" ]]; then
   if [[ -n "${CERTBOT_EMAIL:-}" ]]; then
     certbot certonly --webroot -w "$ACME_ROOT" -d "$SUB_DOMAIN" --agree-tos --non-interactive --email "$CERTBOT_EMAIL"
@@ -35,6 +45,7 @@ if [[ ! -s "/etc/letsencrypt/live/${SUB_DOMAIN}/fullchain.pem" ]]; then
     certbot certonly --webroot -w "$ACME_ROOT" -d "$SUB_DOMAIN" --agree-tos --non-interactive --register-unsafely-without-email
   fi
 fi
+
 cat > "$SITE" <<EOF
 server {
     listen 80;
@@ -82,5 +93,11 @@ systemctl reload nginx
 install -d -m 755 /etc/letsencrypt/renewal-hooks/deploy
 printf '%s\n' '#!/usr/bin/env bash' 'systemctl reload nginx' > /etc/letsencrypt/renewal-hooks/deploy/reload-nginx.sh
 chmod 755 /etc/letsencrypt/renewal-hooks/deploy/reload-nginx.sh
+
+# Persist the resolved subscription domain locally for health checks without changing the Git-tracked template.
+install -d -m 700 /etc/kai-vps
+printf '%s\n' "$SUB_DOMAIN" > /etc/kai-vps/sub-domain.resolved
+chmod 600 /etc/kai-vps/sub-domain.resolved
+
 echo "[OK] Mihomo: https://${SUB_DOMAIN}:${SUB_HTTPS_PORT}/sub/${SUB_TOKEN}.yaml"
 echo "[OK] Shadowrocket: https://${SUB_DOMAIN}:${SUB_HTTPS_PORT}/sr/${SUB_TOKEN}"

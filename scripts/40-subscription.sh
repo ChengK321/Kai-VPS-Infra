@@ -110,6 +110,9 @@ class Handler(BaseHTTPRequestHandler):
 
 ThreadingHTTPServer(('127.0.0.1', PORT), Handler).serve_forever()
 PY
+chmod 640 /opt/kai-subscription/server.py
+chown root:www-data /opt/kai-subscription/server.py
+/usr/bin/python3 -m py_compile /opt/kai-subscription/server.py
 
 cat > /etc/kai-subscription.env <<EOF
 MIHOMO_PATH=/sub/${SUB_TOKEN}.yaml
@@ -143,8 +146,30 @@ WantedBy=multi-user.target
 EOF
 
 systemctl daemon-reload
-systemctl enable --now kai-subscription
+systemctl enable kai-subscription >/dev/null 2>&1 || true
 systemctl restart kai-subscription
-curl -fsS "http://127.0.0.1:${SUB_PORT}/sub/${SUB_TOKEN}.yaml" >/dev/null
+
+# Type=simple returns before the Python server necessarily finishes binding.
+# Wait for the local backend instead of racing it with an immediate curl.
+ready=0
+for _ in $(seq 1 20); do
+  if curl -fsS --connect-timeout 1 "http://127.0.0.1:${SUB_PORT}/sub/${SUB_TOKEN}.yaml" >/dev/null 2>&1; then
+    ready=1
+    break
+  fi
+  if ! systemctl is-active --quiet kai-subscription; then
+    break
+  fi
+  sleep 0.25
+done
+
+if [[ "$ready" != 1 ]]; then
+  echo '[ERROR] kai-subscription did not become ready.'
+  systemctl status kai-subscription --no-pager || true
+  journalctl -u kai-subscription -n 30 --no-pager || true
+  exit 1
+fi
+
 curl -fsS "http://127.0.0.1:${SUB_PORT}/sr/${SUB_TOKEN}" | base64 -d | grep -q '^vless://'
-echo '[OK] Mihomo and Shadowrocket local subscription endpoints ready'
+ss -lnt | grep -q "127.0.0.1:${SUB_PORT}"
+echo '[OK] Mihomo and Shadowrocket local subscription endpoints ready on 127.0.0.1:'"${SUB_PORT}"

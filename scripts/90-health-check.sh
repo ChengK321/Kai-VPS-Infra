@@ -14,8 +14,15 @@ printf '\n=== Runtime files ===\n'
 printf '%s\n' /etc/kai-vps/bandwagon.env /etc/kai-vps/secrets.env /usr/local/etc/xray/config.json /opt/kai-subscription/mihomo.yaml /opt/kai-subscription/vless-link.txt /opt/kai-subscription/shadowrocket.txt
 if [[ -f /etc/kai-vps/secrets.env ]]; then
   source /etc/kai-vps/secrets.env
-  if [[ -n "${SUB_DOMAIN:-}" && -n "${SUB_TOKEN:-}" ]]; then
-    printf '\nMihomo subscription: https://%s:%s/sub/%s.yaml\n' "$SUB_DOMAIN" "${SUB_HTTPS_PORT:-8443}" "$SUB_TOKEN"
-    printf 'Shadowrocket subscription: https://%s:%s/sr/%s\n' "$SUB_DOMAIN" "${SUB_HTTPS_PORT:-8443}" "$SUB_TOKEN"
+  RESOLVED_DOMAIN="${SUB_DOMAIN:-}"
+  if [[ -z "$RESOLVED_DOMAIN" && -s /etc/kai-vps/sub-domain.resolved ]]; then
+    RESOLVED_DOMAIN="$(cat /etc/kai-vps/sub-domain.resolved)"
+  fi
+  if [[ -n "$RESOLVED_DOMAIN" && -n "${SUB_TOKEN:-}" ]]; then
+    printf '\nMihomo subscription: https://%s:%s/sub/%s.yaml\n' "$RESOLVED_DOMAIN" "${SUB_HTTPS_PORT:-8443}" "$SUB_TOKEN"
+    printf 'Shadowrocket subscription: https://%s:%s/sr/%s\n' "$RESOLVED_DOMAIN" "${SUB_HTTPS_PORT:-8443}" "$SUB_TOKEN"
+  else
+    printf '\nHTTPS subscription not provisioned yet.\n'
+    printf 'Direct VLESS link: /opt/kai-subscription/vless-link.txt\n'
   fi
 fi

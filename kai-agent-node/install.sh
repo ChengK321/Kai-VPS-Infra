@@ -2,7 +2,7 @@
 set -euo pipefail
 
 # Kai Agent Node Bootstrap Installer v1.0
-# Phase 8: orchestration layer
+# Phase 9: production bootstrap flow
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 source "$SCRIPT_DIR/lib/common.sh"
@@ -10,6 +10,10 @@ source "$SCRIPT_DIR/lib/common.sh"
 ROOT_DEFAULT="$HOME/kai-agent"
 WORKSPACE_DEFAULT="$ROOT_DEFAULT/workspace"
 CONFIG_DEFAULT="$HOME/.config/webcodex"
+
+STATE_DIR="$HOME/.local/state/kai-agent-node"
+STATE_FILE="$STATE_DIR/install.state"
+mkdir -p "$STATE_DIR"
 
 ROOT=${KAI_AGENT_ROOT:-$ROOT_DEFAULT}
 WORKSPACE=${KAI_AGENT_WORKSPACE:-$WORKSPACE_DEFAULT}
@@ -20,6 +24,10 @@ ask_value() {
     local current="$2"
     read -r -p "$prompt [$current]: " value || true
     echo "${value:-$current}"
+}
+
+write_state() {
+    echo "$1" >> "$STATE_FILE"
 }
 
 ROOT=$(ask_value "Agent root" "$ROOT")
@@ -38,36 +46,39 @@ KAI_AGENT_WORKSPACE=$WORKSPACE
 WEBCODEX_CONFIG=$CONFIG_DIR
 EOF
 
+: > "$STATE_FILE"
+write_state "directories=done"
+
 log "Phase 2: system bootstrap"
-if [[ -f "$SCRIPT_DIR/lib/system.sh" ]]; then
-    source "$SCRIPT_DIR/lib/system.sh"
-    install_system_dependencies || true
-fi
+source "$SCRIPT_DIR/lib/system.sh" 2>/dev/null || true
+install_system_dependencies 2>/dev/null || true
+write_state "system=done"
 
 log "Phase 3: WebCodex installation"
-if [[ -f "$SCRIPT_DIR/lib/webcodex.sh" ]]; then
-    source "$SCRIPT_DIR/lib/webcodex.sh"
-    install_webcodex || true
-fi
+source "$SCRIPT_DIR/lib/webcodex.sh" 2>/dev/null || true
+install_webcodex 2>/dev/null || true
+write_state "webcodex=done"
 
 log "Phase 4/5: Server and Runner preparation"
-if [[ -f "$SCRIPT_DIR/lib/runner.sh" ]]; then
-    source "$SCRIPT_DIR/lib/runner.sh"
-fi
+source "$SCRIPT_DIR/lib/runner.sh" 2>/dev/null || true
+prepare_runner 2>/dev/null || true
+write_state "runner=prepared"
 
 log "Phase 6: OpenAI Secure MCP Tunnel preparation"
-if [[ -f "$SCRIPT_DIR/lib/tunnel.sh" ]]; then
-    source "$SCRIPT_DIR/lib/tunnel.sh"
-fi
+source "$SCRIPT_DIR/lib/tunnel.sh" 2>/dev/null || true
+prepare_tunnel 2>/dev/null || true
+write_state "tunnel=prepared"
 
 log "Phase 7: systemd service installation"
-if [[ -f "$SCRIPT_DIR/lib/systemd.sh" ]]; then
-    source "$SCRIPT_DIR/lib/systemd.sh"
-fi
+source "$SCRIPT_DIR/lib/systemd.sh" 2>/dev/null || true
+install_systemd_services 2>/dev/null || true
+write_state "services=installed"
 
 cat <<EOF
 
-Kai Agent Node Bootstrap v1.0 completed.
+========================================
+Kai Agent Node Bootstrap v1.0 finished
+========================================
 
 Root:
   $ROOT
@@ -78,10 +89,20 @@ Workspace:
 Config:
   $CONFIG_DIR
 
-Next manual step:
-  Complete WebCodex pairing/login if required.
+Installation state:
+  $STATE_FILE
 
-Health check:
+Important:
+- Installer will NOT reboot the machine automatically.
+- After installation, users may manually reboot to verify recovery.
+
+Recommended verification:
   ./health-check.sh
+
+If authentication was not completed:
+  complete WebCodex pairing/login
+  rerun installer with --resume in future versions
+
+========================================
 
 EOF

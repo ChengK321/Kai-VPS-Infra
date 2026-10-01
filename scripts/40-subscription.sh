@@ -4,6 +4,7 @@ set -Eeuo pipefail
 source /etc/kai-vps/bandwagon.env
 source /etc/kai-vps/secrets.env
 : "${SUB_PORT:=18080}"
+: "${NODE_NAME:=Kai-Xray-Reality}"
 PUBLIC_IP="${PUBLIC_IP:-$(curl -4 -fsS --max-time 8 https://api.ipify.org)}"
 SUB_TOKEN="${SUB_TOKEN:-$(openssl rand -hex 32)}"
 
@@ -17,6 +18,12 @@ rm -f "$tmp_secrets"
 install -d -m 750 -o root -g www-data /opt/kai-subscription
 
 # Mihomo / Clash Verge subscription.
+# Design goals:
+# - TUN as the primary traffic capture path, with strict routing and DNS hijack.
+# - IPv6 disabled end-to-end until an explicit IPv6 proxy policy is introduced.
+# - DIRECT traffic uses direct DNS; proxied traffic uses remote DoH through PROXY.
+# - AI services use a dedicated fixed group so they cannot silently fall back to DIRECT.
+# - Fake-IP exclusions keep LAN / captive-portal / Windows connectivity checks functional.
 cat > /opt/kai-subscription/mihomo.yaml <<EOF
 mixed-port: 7890
 allow-lan: false
@@ -25,21 +32,63 @@ log-level: info
 ipv6: false
 unified-delay: true
 tcp-concurrent: true
+
+profile:
+  store-selected: true
+  store-fake-ip: true
+
 tun:
   enable: true
   stack: mixed
-  dns-hijack: [any:53]
+  dns-hijack:
+    - any:53
   auto-route: true
   auto-detect-interface: true
   strict-route: true
+
 dns:
   enable: true
   listen: 127.0.0.1:1053
   ipv6: false
+  prefer-h3: false
+  respect-rules: true
   enhanced-mode: fake-ip
   fake-ip-range: 198.18.0.1/16
+  fake-ip-filter-mode: blacklist
+  fake-ip-filter:
+    - '*.lan'
+    - '*.local'
+    - 'localhost'
+    - '+.msftconnecttest.com'
+    - '+.msftncsi.com'
+    - 'connectivitycheck.gstatic.com'
+    - 'captive.apple.com'
+  # Bootstrap resolvers are IP literals so resolver hostnames can always be resolved.
+  default-nameserver:
+    - 223.5.5.5
+    - 1.1.1.1
+  # Default / proxied DNS leaves through the selected proxy group.
+  nameserver:
+    - 'https://1.1.1.1/dns-query#PROXY'
+    - 'https://8.8.8.8/dns-query#PROXY'
+  # Required when respect-rules=true. The Xray endpoint is currently an IP, but
+  # keeping this explicit avoids a bootstrap loop if it becomes a hostname later.
+  proxy-server-nameserver:
+    - 223.5.5.5
+    - 1.1.1.1
+  # CN/private domains prefer nearby resolvers.
+  nameserver-policy:
+    'geosite:private,cn':
+      - https://doh.pub/dns-query
+      - https://dns.alidns.com/dns-query
+  # DIRECT connections are re-resolved with direct DNS instead of remote DoH.
+  direct-nameserver:
+    - https://doh.pub/dns-query
+    - https://dns.alidns.com/dns-query
+  direct-nameserver-follow-policy: true
+
 proxies:
-  - name: Bandwagon-Xray-Reality
+  - name: "${NODE_NAME}"
     type: vless
     server: ${PUBLIC_IP}
     port: 443
@@ -54,20 +103,45 @@ proxies:
     reality-opts:
       public-key: "${REALITY_PUBLIC_KEY}"
       short-id: "${REALITY_SHORT_ID}"
+
 proxy-groups:
+  - name: AI-US
+    type: select
+    proxies:
+      - "${NODE_NAME}"
   - name: PROXY
     type: select
-    proxies: [Bandwagon-Xray-Reality, DIRECT]
+    proxies:
+      - "${NODE_NAME}"
+      - DIRECT
+
 rules:
+  # AI / coding services first: fixed node, no DIRECT fallback.
+  - DOMAIN-SUFFIX,openai.com,AI-US
+  - DOMAIN-SUFFIX,chatgpt.com,AI-US
+  - DOMAIN-SUFFIX,oaistatic.com,AI-US
+  - DOMAIN-SUFFIX,oaiusercontent.com,AI-US
+  - DOMAIN-SUFFIX,anthropic.com,AI-US
+  - DOMAIN-SUFFIX,claude.ai,AI-US
+  - DOMAIN,gemini.google.com,AI-US
+  - DOMAIN,aistudio.google.com,AI-US
+  - DOMAIN-SUFFIX,ai.google.dev,AI-US
+  - DOMAIN-SUFFIX,generativelanguage.googleapis.com,AI-US
+  - DOMAIN-SUFFIX,cursor.com,AI-US
+  - DOMAIN-SUFFIX,cursor.sh,AI-US
+
+  # Local and mainland-China traffic stays direct.
   - GEOSITE,private,DIRECT
   - GEOIP,private,DIRECT,no-resolve
   - GEOSITE,cn,DIRECT
   - GEOIP,CN,DIRECT,no-resolve
+
+  # Everything else follows the normal proxy group.
   - MATCH,PROXY
 EOF
 
 # Generic VLESS + REALITY URI. Shadowrocket can import this URI directly.
-VLESS_URI="vless://${VLESS_UUID}@${PUBLIC_IP}:443?security=reality&encryption=none&pbk=${REALITY_PUBLIC_KEY}&fp=chrome&type=tcp&flow=xtls-rprx-vision&sni=${REALITY_SNI}&sid=${REALITY_SHORT_ID}#Bandwagon-Xray-Reality"
+VLESS_URI="vless://${VLESS_UUID}@${PUBLIC_IP}:443?security=reality&encryption=none&pbk=${REALITY_PUBLIC_KEY}&fp=chrome&type=tcp&flow=xtls-rprx-vision&sni=${REALITY_SNI}&sid=${REALITY_SHORT_ID}#${NODE_NAME}"
 printf '%s\n' "$VLESS_URI" > /opt/kai-subscription/vless-link.txt
 
 # Shadowrocket subscription body: Base64-encoded VLESS URI.
@@ -170,6 +244,17 @@ if [[ "$ready" != 1 ]]; then
   exit 1
 fi
 
+# Minimal generated-profile assertions. These catch accidental regression in the
+# critical leak-prevention and fixed-AI-routing settings without requiring mihomo
+# itself to be installed on the VPS.
+grep -q '^  strict-route: true$' /opt/kai-subscription/mihomo.yaml
+grep -q '^  respect-rules: true$' /opt/kai-subscription/mihomo.yaml
+grep -q '^  direct-nameserver:$' /opt/kai-subscription/mihomo.yaml
+grep -q '^  - name: AI-US$' /opt/kai-subscription/mihomo.yaml
+grep -q 'DOMAIN-SUFFIX,chatgpt.com,AI-US' /opt/kai-subscription/mihomo.yaml
+grep -q 'DOMAIN-SUFFIX,claude.ai,AI-US' /opt/kai-subscription/mihomo.yaml
+
 curl -fsS "http://127.0.0.1:${SUB_PORT}/sr/${SUB_TOKEN}" | base64 -d | grep -q '^vless://'
 ss -lnt | grep -q "127.0.0.1:${SUB_PORT}"
 echo '[OK] Mihomo and Shadowrocket local subscription endpoints ready on 127.0.0.1:'"${SUB_PORT}"
+echo '[OK] Mihomo profile includes strict TUN, split DNS, IPv6-off policy and fixed AI routing.'

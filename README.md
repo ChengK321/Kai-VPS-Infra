@@ -15,8 +15,31 @@ The goal is **stepwise, observable, repeatable deployment** rather than one larg
 - `50-nginx-cert.sh` — Nginx + Let's Encrypt + HTTPS subscription on 8443
 - `90-health-check.sh` — service, ports and firewall checks
 
-See `docs/deployment.md` for the execution order and profile-only upgrade procedure.
-See `docs/client-leak-check.md` for the Windows / Android IP, DNS, WebRTC, IPv6 and rule-hit verification checklist.
+## Clash profiles
+
+Additional client profiles:
+
+- `clash/strict-ai-exit.yaml`
+  - AI dedicated exit
+  - OpenAI / Claude / Cursor / Gemini fixed through DMIT
+  - IPv6 disabled
+  - Fake-IP DNS mode
+
+- `clash/daily-balanced.yaml`
+  - Daily browsing mode
+  - CN direct access
+  - Overseas traffic through proxy
+
+## Verification
+
+See:
+
+- `docs/deployment.md`
+- `docs/client-leak-check.md`
+- `docs/SECURITY_CHECKLIST.md`
+- `docs/AI_PROXY_USAGE.md`
+
+for deployment, client leak checks and AI usage recommendations.
 
 ## Secrets policy
 

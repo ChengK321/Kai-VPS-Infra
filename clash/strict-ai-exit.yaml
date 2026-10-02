@@ -1,0 +1,48 @@
+mixed-port: 7890
+mode: rule
+log-level: info
+ipv6: false
+unified-delay: true
+tcp-concurrent: true
+
+# AI dedicated profile
+# Use with Clash Verge Rev / Clash Meta
+# Goal: keep OpenAI/Claude/Cursor traffic on fixed DMIT exit
+
+tun:
+  enable: true
+  stack: mixed
+  auto-route: true
+  auto-detect-interface: true
+
+# Avoid DNS leaks and IPv6 identity changes
+dns:
+  enable: true
+  ipv6: false
+  enhanced-mode: fake-ip
+  fake-ip-range: 198.18.0.1/16
+  nameserver:
+    - https://1.1.1.1/dns-query
+    - https://8.8.8.8/dns-query
+
+proxy-groups:
+  - name: AI-US
+    type: select
+    proxies:
+      - DMIT-Xray-Reality
+
+rules:
+  # AI services
+  - DOMAIN-SUFFIX,openai.com,AI-US
+  - DOMAIN-SUFFIX,chatgpt.com,AI-US
+  - DOMAIN-SUFFIX,anthropic.com,AI-US
+  - DOMAIN-SUFFIX,claude.ai,AI-US
+  - DOMAIN-SUFFIX,cursor.com,AI-US
+  - DOMAIN-SUFFIX,cursor.sh,AI-US
+  - DOMAIN-SUFFIX,gemini.google.com,AI-US
+  - DOMAIN-SUFFIX,huggingface.co,AI-US
+  - DOMAIN-SUFFIX,github.com,AI-US
+  - DOMAIN-SUFFIX,githubusercontent.com,AI-US
+
+  # Default fallback
+  - MATCH,AI-US

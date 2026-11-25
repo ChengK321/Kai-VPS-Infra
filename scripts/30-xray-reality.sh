@@ -44,7 +44,7 @@ $XRAY run -test -config "$candidate"
 if [[ -e "$XRAY_CONFIG" ]]; then
   cp -p "$XRAY_CONFIG" "${XRAY_CONFIG}.bak.$(date +%Y%m%d%H%M%S)"
 fi
-install -m 644 "$candidate" "$XRAY_CONFIG"
+install -m 640 -o root -g xray "$candidate" "$XRAY_CONFIG"
 systemctl enable xray >/dev/null 2>&1 || true
 systemctl restart xray
 systemctl is-active --quiet xray

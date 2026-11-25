@@ -152,6 +152,7 @@ sudo ufw status verbose
 | --- | --- |
 | 新账号无法 SSH 登录 | 保留的初始会话、服务商控制台、公钥和 `authorized_keys` 权限、`SSH_PORT`、服务商安全组、UFW。 |
 | `30` 提示配置已存在 | 这是覆盖保护；先确认是否为新机器或已有 Xray，不要直接强制覆盖。 |
+| `30` 安装后在配置测试阶段失败 | 先看 `sudo jq '{inboundCount:(.inbounds|length)}' /usr/local/etc/xray/config.json`。若确认只是安装器生成的空配置，更新到修复版脚本后才可单次使用 `sudo XRAY_REPLACE_EXISTING=1 bash scripts/30-xray-reality.sh` 恢复；若已有入站或客户端，不要覆盖。 |
 | 443 可监听但客户端连不上 | 服务商安全组、UFW、客户端 IP/端口、UUID、REALITY 公钥、SNI、短 ID。 |
 | `50` 证书申请失败 | 域名 A 记录、80/TCP 公网可达性、Nginx 端口占用、证书服务返回的具体错误。 |
 | 订阅 URL 访问失败 | `kai-subscription`、Nginx、8443/TCP、证书和 URL 中的完整令牌。 |

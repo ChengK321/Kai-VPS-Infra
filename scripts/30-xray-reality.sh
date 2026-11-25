@@ -35,7 +35,9 @@ REALITY_SHORT_ID=${REALITY_SHORT_ID}
 EOF
 chmod 600 "$SECRETS"
 install -d -m 755 /usr/local/etc/xray
-candidate="$(mktemp /usr/local/etc/xray/.config.XXXXXX)"
+# Xray detects JSON from the filename; a suffixless temporary file fails
+# even when its contents are valid JSON.
+candidate="$(mktemp /usr/local/etc/xray/.config.XXXXXX.json)"
 trap 'rm -f "$candidate"' EXIT
 jq -n --arg uuid "$VLESS_UUID" --arg sni "$REALITY_SNI" --arg privateKey "$REALITY_PRIVATE_KEY" --arg shortId "$REALITY_SHORT_ID" '{log:{loglevel:"warning"},inbounds:[{listen:"0.0.0.0",port:443,protocol:"vless",settings:{clients:[{id:$uuid,flow:"xtls-rprx-vision"}],decryption:"none"},streamSettings:{network:"tcp",security:"reality",realitySettings:{show:false,target:($sni+":443"),xver:0,serverNames:[$sni],privateKey:$privateKey,shortIds:[$shortId]}}}],outbounds:[{protocol:"freedom",tag:"direct"}]}' > "$candidate"
 $XRAY run -test -config "$candidate"

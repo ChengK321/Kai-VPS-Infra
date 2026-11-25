@@ -4,6 +4,14 @@ set -Eeuo pipefail
 source /etc/kai-vps/bandwagon.env
 : "${XRAY_VERSION:=v26.6.27}"
 : "${REALITY_SNI:=www.cloudflare.com}"
+XRAY_CONFIG=/usr/local/etc/xray/config.json
+# Existing installations can contain additional clients and a local REALITY
+# fallback. Never replace that state during an ordinary script rerun.
+if [[ -e "$XRAY_CONFIG" && "${XRAY_REPLACE_EXISTING:-0}" != 1 ]]; then
+  echo "[ERROR] $XRAY_CONFIG already exists; refusing to overwrite live clients or REALITY settings."
+  echo 'Back up and review the existing configuration before setting XRAY_REPLACE_EXISTING=1.'
+  exit 1
+fi
 STATE_DIR=/etc/kai-vps
 SECRETS="$STATE_DIR/secrets.env"
 install -d -m 700 "$STATE_DIR"
@@ -27,8 +35,14 @@ REALITY_SHORT_ID=${REALITY_SHORT_ID}
 EOF
 chmod 600 "$SECRETS"
 install -d -m 755 /usr/local/etc/xray
-jq -n --arg uuid "$VLESS_UUID" --arg sni "$REALITY_SNI" --arg privateKey "$REALITY_PRIVATE_KEY" --arg shortId "$REALITY_SHORT_ID" '{log:{loglevel:"warning"},inbounds:[{listen:"0.0.0.0",port:443,protocol:"vless",settings:{clients:[{id:$uuid,flow:"xtls-rprx-vision"}],decryption:"none"},streamSettings:{network:"tcp",security:"reality",realitySettings:{show:false,dest:($sni+":443"),xver:0,serverNames:[$sni],privateKey:$privateKey,shortIds:[$shortId]}}}],outbounds:[{protocol:"freedom",tag:"direct"}]}' > /usr/local/etc/xray/config.json
-$XRAY run -test -config /usr/local/etc/xray/config.json
+candidate="$(mktemp /usr/local/etc/xray/.config.XXXXXX)"
+trap 'rm -f "$candidate"' EXIT
+jq -n --arg uuid "$VLESS_UUID" --arg sni "$REALITY_SNI" --arg privateKey "$REALITY_PRIVATE_KEY" --arg shortId "$REALITY_SHORT_ID" '{log:{loglevel:"warning"},inbounds:[{listen:"0.0.0.0",port:443,protocol:"vless",settings:{clients:[{id:$uuid,flow:"xtls-rprx-vision"}],decryption:"none"},streamSettings:{network:"tcp",security:"reality",realitySettings:{show:false,target:($sni+":443"),xver:0,serverNames:[$sni],privateKey:$privateKey,shortIds:[$shortId]}}}],outbounds:[{protocol:"freedom",tag:"direct"}]}' > "$candidate"
+$XRAY run -test -config "$candidate"
+if [[ -e "$XRAY_CONFIG" ]]; then
+  cp -p "$XRAY_CONFIG" "${XRAY_CONFIG}.bak.$(date +%Y%m%d%H%M%S)"
+fi
+install -m 644 "$candidate" "$XRAY_CONFIG"
 systemctl enable xray >/dev/null 2>&1 || true
 systemctl restart xray
 systemctl is-active --quiet xray

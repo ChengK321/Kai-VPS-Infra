@@ -11,6 +11,7 @@ The goal is **stepwise, observable, repeatable deployment** rather than one larg
 - `10-admin-ssh.sh` — admin user and SSH key hardening
 - `20-security-network.sh` — UFW, fail2ban, unattended upgrades, BBR
 - `30-xray-reality.sh` — Xray VLESS + XTLS Vision + REALITY on 443/tcp
+- `35-dmit-backup-port.sh` — optional IPv4 TCP 24443 → 443 UFW NAT redirect for DMIT; never changes Xray clients
 - `40-subscription.sh` — local Mihomo / Shadowrocket subscription backend on 127.0.0.1:18080; generates strict TUN, split DNS, IPv6-off and fixed AI-routing policy
 - `50-nginx-cert.sh` — Nginx + Let's Encrypt + HTTPS subscription on 8443
 - `90-health-check.sh` — service, ports and firewall checks
@@ -44,3 +45,5 @@ for deployment, client leak checks and AI usage recommendations.
 ## Secrets policy
 
 This repository contains **no server credentials**. Runtime UUIDs, REALITY keys and subscription tokens are generated on the VPS and stored only in `/etc/kai-vps/secrets.env`.
+
+The current DMIT host has additional clients, a local REALITY fallback and a hardened service override. `30-xray-reality.sh` refuses to overwrite an existing Xray configuration unless `XRAY_REPLACE_EXISTING=1` is set explicitly. See `docs/dmit-current-network.md` before changing that host.

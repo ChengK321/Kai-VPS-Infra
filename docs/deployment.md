@@ -9,6 +9,8 @@
 5. Open a **new terminal** and verify SSH key login with the configured admin user before closing the current session.
 6. `sudo bash scripts/20-security-network.sh`
 7. `sudo bash scripts/30-xray-reality.sh`
+   On a fresh DMIT-compatible host, set `PUBLIC_IP` and optionally run
+   `sudo bash scripts/35-dmit-backup-port.sh` for a 24443 fallback endpoint.
 8. `sudo bash scripts/40-subscription.sh`
 9. Configure the subscription domain A record to this VPS.
 10. `sudo bash scripts/50-nginx-cert.sh`
@@ -19,6 +21,10 @@
 Public configuration is stored at `/etc/kai-vps/bandwagon.env`.
 Generated credentials are stored at `/etc/kai-vps/secrets.env` with mode `600`.
 Never commit either runtime file back into Git.
+
+`30-xray-reality.sh` stops if an Xray config already exists. On the current
+DMIT host, see `docs/dmit-current-network.md`; do not replace its live clients
+and local fallback with the fresh-install template.
 
 `NODE_NAME` is optional for existing installations. If absent, `40-subscription.sh` uses `Kai-Xray-Reality`.
 

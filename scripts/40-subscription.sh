@@ -4,8 +4,14 @@ set -Eeuo pipefail
 source /etc/kai-vps/bandwagon.env
 source /etc/kai-vps/secrets.env
 : "${SUB_PORT:=18080}"
+: "${SUB_HTTPS_PORT:=8443}"
+: "${AUTO_SSLIP_DOMAIN:=1}"
 : "${NODE_NAME:=Kai-Xray-Reality}"
 PUBLIC_IP="${PUBLIC_IP:-$(curl -4 -fsS --max-time 8 https://api.ipify.org)}"
+if [[ -z "${SUB_DOMAIN:-}" && "$AUTO_SSLIP_DOMAIN" == 1 ]]; then
+  SUB_DOMAIN="$(printf '%s' "$PUBLIC_IP" | tr '.' '-').sslip.io"
+fi
+[[ -n "${SUB_DOMAIN:-}" ]] || { echo 'Set SUB_DOMAIN or enable AUTO_SSLIP_DOMAIN'; exit 1; }
 SUB_TOKEN="${SUB_TOKEN:-$(openssl rand -hex 32)}"
 
 # Keep exactly one SUB_TOKEN entry so this script can be rerun safely.
@@ -16,6 +22,41 @@ install -m 600 "$tmp_secrets" /etc/kai-vps/secrets.env
 rm -f "$tmp_secrets"
 
 install -d -m 750 -o root -g www-data /opt/kai-subscription
+install -d -m 750 -o root -g www-data /opt/kai-subscription/rules
+if [[ ! -s /opt/kai-subscription/rules/microsoft-download.yaml ]]; then
+  install -m 640 -o root -g www-data "$(dirname "$0")/../config/microsoft-download.yaml" /opt/kai-subscription/rules/microsoft-download.yaml
+fi
+install -m 640 -o root -g www-data "$(dirname "$0")/update-microsoft-rules.py" /opt/kai-subscription/update-microsoft-rules.py
+
+cat > /etc/systemd/system/kai-microsoft-rules.service <<'EOF'
+[Unit]
+Description=Refresh validated Microsoft download routing rules
+After=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/python3 /opt/kai-subscription/update-microsoft-rules.py
+NoNewPrivileges=yes
+ProtectSystem=strict
+ReadWritePaths=/opt/kai-subscription/rules
+ProtectHome=yes
+PrivateTmp=yes
+TimeoutStartSec=45
+EOF
+cat > /etc/systemd/system/kai-microsoft-rules.timer <<'EOF'
+[Unit]
+Description=Refresh Microsoft download routing rules daily
+
+[Timer]
+OnCalendar=daily
+RandomizedDelaySec=30min
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+EOF
+systemctl daemon-reload
+systemctl enable --now kai-microsoft-rules.timer
 
 # Mihomo / Clash Verge subscription.
 # Design goals:
@@ -78,6 +119,10 @@ dns:
     - 1.1.1.1
   # CN/private domains prefer nearby resolvers.
   nameserver-policy:
+    'services.googleapis.cn':
+      - 'https://1.1.1.1/dns-query#AI-US'
+    '+.xn--ngstr-lra8j.com':
+      - 'https://1.1.1.1/dns-query#AI-US'
     'geosite:private,cn':
       - https://doh.pub/dns-query
       - https://dns.alidns.com/dns-query
@@ -116,6 +161,22 @@ proxy-groups:
       - DIRECT
 
 rules:
+  # Google Play bootstrap, storefront and downloads stay on the fixed node.
+  - DOMAIN,services.googleapis.cn,AI-US
+  - DOMAIN,play-fe.googleapis.com,AI-US
+  - DOMAIN,android.clients.google.com,AI-US
+  - DOMAIN-SUFFIX,xn--ngstr-lra8j.com,AI-US
+  - DOMAIN,play.google.com,AI-US
+  - DOMAIN,play.googleapis.com,AI-US
+  - DOMAIN,android.googleapis.com,AI-US
+  - DOMAIN,android.apis.google.com,AI-US
+  - DOMAIN,dl.google.com,AI-US
+  - DOMAIN,dl-ssl.google.com,AI-US
+  - DOMAIN-SUFFIX,gvt1.com,AI-US
+  - DOMAIN-SUFFIX,ggpht.com,AI-US
+  - DOMAIN-SUFFIX,gvt2.com,AI-US
+  - DOMAIN-SUFFIX,gvt3.com,AI-US
+
   # AI / coding services first: fixed node, no DIRECT fallback.
   - DOMAIN-SUFFIX,openai.com,AI-US
   - DOMAIN-SUFFIX,chatgpt.com,AI-US
@@ -131,6 +192,7 @@ rules:
   - DOMAIN-SUFFIX,cursor.sh,AI-US
 
   # Local and mainland-China traffic stays direct.
+  - RULE-SET,microsoft-download,DIRECT
   - GEOSITE,private,DIRECT
   - GEOIP,private,DIRECT,no-resolve
   - GEOSITE,cn,DIRECT
@@ -138,6 +200,16 @@ rules:
 
   # Everything else follows the normal proxy group.
   - MATCH,PROXY
+
+rule-providers:
+  microsoft-download:
+    type: http
+    behavior: classical
+    format: yaml
+    url: https://${SUB_DOMAIN}:${SUB_HTTPS_PORT}/rules/microsoft-download.yaml
+    path: ./ruleset/kai-microsoft-download.yaml
+    interval: 86400
+    proxy: AI-US
 EOF
 
 # Generic VLESS + REALITY URI. Shadowrocket can import this URI directly.
@@ -253,8 +325,14 @@ grep -q '^  direct-nameserver:$' /opt/kai-subscription/mihomo.yaml
 grep -q '^  - name: AI-US$' /opt/kai-subscription/mihomo.yaml
 grep -q 'DOMAIN-SUFFIX,chatgpt.com,AI-US' /opt/kai-subscription/mihomo.yaml
 grep -q 'DOMAIN-SUFFIX,claude.ai,AI-US' /opt/kai-subscription/mihomo.yaml
+grep -q 'DOMAIN,services.googleapis.cn,AI-US' /opt/kai-subscription/mihomo.yaml
+grep -q 'DOMAIN-SUFFIX,gvt1.com,AI-US' /opt/kai-subscription/mihomo.yaml
+grep -q 'RULE-SET,microsoft-download,DIRECT' /opt/kai-subscription/mihomo.yaml
+grep -q "url: https://${SUB_DOMAIN}:${SUB_HTTPS_PORT}/rules/microsoft-download.yaml" /opt/kai-subscription/mihomo.yaml
+grep -q 'DOMAIN-SUFFIX,windowsupdate.com' /opt/kai-subscription/rules/microsoft-download.yaml
+systemctl is-active --quiet kai-microsoft-rules.timer
 
 curl -fsS "http://127.0.0.1:${SUB_PORT}/sr/${SUB_TOKEN}" | base64 -d | grep -q '^vless://'
 ss -lnt | grep -q "127.0.0.1:${SUB_PORT}"
 echo '[OK] Mihomo and Shadowrocket local subscription endpoints ready on 127.0.0.1:'"${SUB_PORT}"
-echo '[OK] Mihomo profile includes strict TUN, split DNS, IPv6-off policy and fixed AI routing.'
+echo '[OK] Mihomo profile includes strict TUN, split DNS, fixed AI/Google Play routing and Microsoft download DIRECT rules.'

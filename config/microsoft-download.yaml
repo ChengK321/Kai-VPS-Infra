@@ -1,0 +1,9 @@
+payload:
+  - DOMAIN-SUFFIX,cdn.office.net
+  - DOMAIN-SUFFIX,dl.delivery.mp.microsoft.com
+  - DOMAIN-SUFFIX,do.dsp.mp.microsoft.com
+  - DOMAIN-SUFFIX,download.microsoft.com
+  - DOMAIN-SUFFIX,officecdn.microsoft.com
+  - DOMAIN-SUFFIX,packages.microsoft.com
+  - DOMAIN-SUFFIX,static.microsoft
+  - DOMAIN-SUFFIX,windowsupdate.com

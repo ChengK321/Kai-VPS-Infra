@@ -120,6 +120,8 @@ sudo systemctl is-active kai-subscription
 
 `40` 会生成本地 Mihomo 配置、Shadowrocket 链接和订阅服务，并生成订阅令牌。服务只监听 `127.0.0.1:18080`，之后由 Nginx 对外提供 HTTPS。
 
+Mihomo 配置还包含 DMIT 验证过的 Google Play 指定代理与 DNS 策略，以及 Windows Update / Microsoft 下载域名直连规则。公开规则文件初始来自仓库的窄范围清单；`kai-microsoft-rules.timer` 每天尝试从 Microsoft 官方端点表更新，校验失败时保留上一版。`50` 在 HTTPS 8443 上公开 `/rules/microsoft-download.yaml` 供 Mihomo 获取；该文件没有订阅令牌或节点密钥。订阅 URL 仍需令牌。
+
 运行 `50` **之前**，先确认域名条件：
 
 - 自有域名：把 `SUB_DOMAIN` 的 A 记录指向新 VPS 的公网 IPv4，等待解析生效；可运行 `dig +short A <你的域名>` 核对。
@@ -145,6 +147,10 @@ sudo ufw status verbose
 ```
 
 `90` 主要展示状态，**不能单独证明外部客户端可用**。在自己的 Mihomo / Shadowrocket 客户端导入 `50` 输出的订阅 URL，刷新订阅并实际连接；确认订阅通过 HTTPS 下载、443 节点可用。启用了备用入口时，再单独测试 24443。检查 DNS、IPv6、WebRTC 和 AI 服务路由可参考 [客户端防泄漏检查](client-leak-check.md)。
+
+在腾讯云轻量服务器上，还要进入实例的**防火墙**页面，单独放行 TCP 443 和 8443（以及可选的 24443）；UFW 显示 `ALLOW` 不代表云防火墙已经放行。根路径返回 404 是正常的，只有订阅令牌路径和公开规则文件路径提供内容。
+
+若已用旧版 `40`、`50` 完成部署，现在要补上这些分流定制，先更新 `bandwagon` 分支，再依次重跑 `40-subscription.sh` 和 `50-nginx-cert.sh`。`40` 会保留现有订阅令牌与已更新的 Microsoft 规则文件。重跑后刷新客户端订阅，并检查 `systemctl is-active kai-microsoft-rules.timer` 与公开规则 URL。
 
 ## 出错时先看哪里
 

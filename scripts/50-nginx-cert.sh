@@ -71,6 +71,13 @@ server {
     add_header X-Content-Type-Options nosniff always;
     add_header Cache-Control "no-store" always;
 
+    # Public, credential-free rule provider used by the Mihomo profile.
+    location = /rules/microsoft-download.yaml {
+        alias /opt/kai-subscription/rules/microsoft-download.yaml;
+        default_type text/yaml;
+        add_header Cache-Control "no-cache" always;
+    }
+
     location = /sub/${SUB_TOKEN}.yaml {
         proxy_pass http://127.0.0.1:${SUB_PORT};
         proxy_http_version 1.1;

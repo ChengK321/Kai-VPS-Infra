@@ -12,8 +12,8 @@ The goal is **stepwise, observable, repeatable deployment** rather than one larg
 - `20-security-network.sh` — UFW, fail2ban, unattended upgrades, BBR
 - `30-xray-reality.sh` — Xray VLESS + XTLS Vision + REALITY on 443/tcp
 - `35-dmit-backup-port.sh` — optional IPv4 TCP 24443 → 443 UFW NAT redirect for DMIT; never changes Xray clients
-- `40-subscription.sh` — local Mihomo / Shadowrocket subscription backend on 127.0.0.1:18080; generates strict TUN, split DNS, IPv6-off and fixed AI-routing policy
-- `50-nginx-cert.sh` — Nginx + Let's Encrypt + HTTPS subscription on 8443
+- `40-subscription.sh` — local Mihomo / Shadowrocket subscription backend on 127.0.0.1:18080; generates strict TUN, split DNS, IPv6-off, fixed AI/Google Play routing and a validated Microsoft download rule provider
+- `50-nginx-cert.sh` — Nginx + Let's Encrypt + HTTPS subscription and public rule provider on 8443
 - `90-health-check.sh` — service, ports and firewall checks
 
 ## Clash profiles

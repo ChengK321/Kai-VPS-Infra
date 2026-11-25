@@ -70,7 +70,17 @@ sudo bash scripts/10-admin-ssh.sh
 ssh -p <SSH_PORT> <ADMIN_USER>@<PUBLIC_IP>
 ```
 
-登录后执行 `sudo -v`，确认新账号既能用密钥登录，也能执行 sudo。再确认服务商侧已放行新 SSH 端口，然后运行：
+登录后执行 `sudo -v`，确认新账号既能用密钥登录，也能执行 sudo。再确认服务商侧已放行新 SSH 端口。
+
+在 VPS 上还可以核对 SSH 的**实际生效值**（仅看到脚本成功提示不够）：
+
+```bash
+sudo sshd -T | grep -E '^(port|permitrootlogin|passwordauthentication|pubkeyauthentication|allowusers) '
+```
+
+预期是配置的端口、`permitrootlogin no`、`passwordauthentication no`、`pubkeyauthentication yes` 和 `allowusers kai`（若改了管理员名，以实际账号为准）。新版 `10` 会检查这些值。部分 Ubuntu 云镜像的 `50-cloud-init.conf` 会启用密码认证；使用旧版脚本时请更新仓库并重跑 `10`，再检查生效值。
+
+随后运行：
 
 ```bash
 sudo bash scripts/20-security-network.sh

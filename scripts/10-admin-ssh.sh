@@ -19,7 +19,10 @@ if [[ ! -s "$home_dir/.ssh/authorized_keys" ]]; then
   echo '[WARN] No SSH public key found. Root/password login remains unchanged.'
   exit 0
 fi
-cat > /etc/ssh/sshd_config.d/99-kai-hardening.conf <<EOF
+ssh-keygen -lf "$home_dir/.ssh/authorized_keys" >/dev/null
+# OpenSSH uses the first value it reads. On cloud images, 50-cloud-init.conf
+# may set PasswordAuthentication yes, so load this file before it.
+cat > /etc/ssh/sshd_config.d/01-kai-hardening.conf <<EOF
 Port ${SSH_PORT}
 PermitRootLogin no
 PasswordAuthentication no
@@ -31,5 +34,12 @@ X11Forwarding no
 AllowUsers ${ADMIN_USER}
 EOF
 sshd -t
-systemctl restart ssh 2>/dev/null || systemctl restart sshd
+effective_config="$(sshd -T)"
+for expected in "port ${SSH_PORT}" 'permitrootlogin no' 'passwordauthentication no' 'pubkeyauthentication yes' "allowusers ${ADMIN_USER}"; do
+  if ! grep -Fxq -- "$expected" <<< "$effective_config"; then
+    echo "[ERROR] sshd effective config does not contain: $expected"
+    exit 1
+  fi
+done
+systemctl reload ssh 2>/dev/null || systemctl reload sshd
 echo '[OK] SSH hardening applied. Test a new SSH session before closing this one.'

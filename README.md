@@ -36,6 +36,7 @@ Additional client profiles:
 See:
 
 - `docs/deployment.md`
+- `docs/新VPS中文部署指南.md` — 从全新 Ubuntu VPS 开始的中文逐步部署与故障排查
 - `docs/client-leak-check.md`
 - `docs/SECURITY_CHECKLIST.md`
 - `docs/AI_PROXY_USAGE.md`
